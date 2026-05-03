@@ -72,7 +72,7 @@ result = await service.get_anime_by_genre(
 ```
 
 Géneros disponibles en AniList:
-- Action, Adventure, Comedy, Drama, Ecchi, Fantasy, Hentai, Horror, Mahou Shoujo, Mecha, Music, Mystery, Psychological, Romance, Sci-Fi, Slice of Life, Sports, Supernatural, Thriller
+- Action, Adventure, Comedy, Drama, Fantasy, Horror, Mahou Shoujo, Mecha, Music, Mystery, Psychological, Romance, Sci-Fi, Slice of Life, Sports, Supernatural, Thriller
 
 #### 4. **Obtener personajes de un anime**
 ```python

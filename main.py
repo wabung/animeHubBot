@@ -12,7 +12,7 @@ COGS = [
     'cogs.help',
     'cogs.info',
     # 'cogs.community',
-    # 'cogs.games',
+    'cogs.games',
     'cogs.admin',
 ]
 

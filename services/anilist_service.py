@@ -394,3 +394,105 @@ class AniListService:
             logger.error(f"Error fetching trending anime: {e}")
             return None
 
+    async def get_characters_pool(self, size: int = 25) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a pool of popular characters with their anime for trivia generation.
+
+        Args:
+            size: Number of characters to fetch (default 25)
+
+        Returns:
+            Dictionary with character list or None if error
+        """
+        import random
+        page = random.randint(1, 5)
+
+        characters_pool_query = gql("""
+            query GetCharactersPool($page: Int, $perPage: Int) {
+                Page(page: $page, perPage: $perPage) {
+                    characters(sort: FAVOURITES_DESC) {
+                        id
+                        name {
+                            full
+                        }
+                        image {
+                            large
+                        }
+                        media(type: ANIME, sort: POPULARITY_DESC) {
+                            nodes {
+                                id
+                                title {
+                                    romaji
+                                    english
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        """)
+
+        try:
+            async with self.client as session:
+                result = await session.execute(
+                    characters_pool_query,
+                    variable_values={"page": page, "perPage": size}
+                )
+                return result
+        except Exception as e:
+            logger.error(f"Error fetching characters pool: {e}")
+            return None
+
+    async def get_anime_pool(self, size: int = 50) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a pool of popular anime with full data needed for trivia generation.
+        Uses a random page from the top 500 to ensure variety across sessions.
+
+        Args:
+            size: Number of anime to fetch (default 50)
+
+        Returns:
+            Dictionary with anime list or None if error
+        """
+        import random
+        page = random.randint(1, 10)
+
+        pool_query = gql("""
+            query GetAnimePool($page: Int, $perPage: Int) {
+                Page(page: $page, perPage: $perPage) {
+                    media(type: ANIME, sort: SCORE_DESC, averageScore_greater: 60) {
+                        id
+                        title {
+                            romaji
+                            english
+                        }
+                        coverImage {
+                            large
+                        }
+                        episodes
+                        averageScore
+                        genres
+                        startDate {
+                            year
+                        }
+                        studios(isMain: true) {
+                            nodes {
+                                name
+                            }
+                        }
+                    }
+                }
+            }
+        """)
+
+        try:
+            async with self.client as session:
+                result = await session.execute(
+                    pool_query,
+                    variable_values={"page": page, "perPage": size}
+                )
+                return result
+        except Exception as e:
+            logger.error(f"Error fetching anime pool: {e}")
+            return None
+
