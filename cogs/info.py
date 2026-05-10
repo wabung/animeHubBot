@@ -6,7 +6,7 @@ Provides commands to search, discover, and get detailed information about anime.
 import discord
 from discord import app_commands
 from discord.ext import commands
-from services import AniListService
+from services import AniListService, BackendClient
 from utils.embeds import base_embed, error_embed, Colors
 from utils.embeds import search_embed, genre_embed, trending_embed
 import logging
@@ -137,11 +137,22 @@ class Info(commands.Cog):
         self.bot = bot
         self.anilist = AniListService()
 
+    @property
+    def backend(self) -> BackendClient:
+        return self.bot.backend
+
+    async def _track(self, ctx: commands.Context):
+        """Register user if new and increment query counters. Fire-and-forget."""
+        await self.backend.register_user(ctx.author.id, ctx.author.name)
+        await self.backend.increment_user_queries(ctx.author.id)
+        await self.backend.increment_queries(ctx.guild.id)
+
     @commands.hybrid_command(name="anime", description="Search for anime information")
     @app_commands.describe(query="Anime title to search for")
     async def search_anime(self, ctx: commands.Context, *, query: str):
         """Search for anime by title."""
         await ctx.defer()
+        await self._track(ctx)
 
         result = await self.anilist.search_anime(query, page=1, per_page=5)
 
@@ -316,6 +327,7 @@ class Info(commands.Cog):
     async def trending_anime(self, ctx: commands.Context):
         """Get the most popular anime right now."""
         await ctx.defer()
+        await self._track(ctx)
 
         result = await self.anilist.get_trending_anime(per_page=10)
 

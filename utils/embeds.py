@@ -116,8 +116,10 @@ def genre_embed(result: dict, genre: str) -> tuple[discord.Embed, dict]:
 
     embed = base_embed(title=f"Best {genre} Anime", color=Colors.GAMES)
 
+    per_page = 5
+    start_idx = (page_info["currentPage"] - 1) * per_page + 1
     anime_list = ""
-    for idx, anime in enumerate(media_list, 1):
+    for idx, anime in enumerate(media_list, start_idx):
         anime_list += (
             f"**{idx}. {anime['title']['romaji']}**\n"
             f"Score: {anime['averageScore']}/100 | "

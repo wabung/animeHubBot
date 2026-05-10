@@ -3,6 +3,7 @@ from discord.ext import commands
 import logging
 from dotenv import load_dotenv
 import os
+from services import BackendClient
 
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
@@ -25,12 +26,12 @@ class Bot(commands.Bot):
         activity = discord.Game(name="/help")
         super().__init__(command_prefix='!', intents=intents, activity=activity)
         self.remove_command('help')
+        self.backend = BackendClient()
 
     async def setup_hook(self):
         for cog in COGS:
             await self.load_extension(cog)
-        
-        # Sync prefix/slash commands
+
         try:
             if dev_guild_id:
                 guild = discord.Object(id=int(dev_guild_id))
@@ -42,6 +43,22 @@ class Bot(commands.Bot):
                 print(f"Synced {len(synced)} global command(s).")
         except Exception as e:
             print(f"Error syncing commands: {e}")
+
+    async def on_ready(self):
+        print(f'Logged in as {self.user.name} ({self.user.id})')
+        for guild in self.guilds:
+            await self.backend.register_guild(guild.id, guild.name)
+            print(f'  Registered guild: {guild.name}')
+
+    async def on_guild_join(self, guild: discord.Guild):
+        await self.backend.register_guild(guild.id, guild.name)
+
+    async def on_member_join(self, member: discord.Member):
+        await self.backend.register_user(member.id, member.name)
+
+    async def close(self):
+        await self.backend.close()
+        await super().close()
 
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.CommandNotFound):
@@ -57,19 +74,11 @@ class Bot(commands.Bot):
         else:
             print(f'Error in command {ctx.command}: {error}')
 
-    async def on_ready(self):
-        print(f'Logged in as {self.user.name} ({self.user.id})')
-
-    async def on_member_join(self, member):
-        print(f'Welcome {member} to the server!')
 
 if __name__ == '__main__':
     if not token:
         raise SystemExit("Error: DISCORD_TOKEN environment variable not set. Please set it in your .env file.")
-    
+
     handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
     bot = Bot()
-
     bot.run(token, log_handler=handler, log_level=logging.DEBUG)
-
-

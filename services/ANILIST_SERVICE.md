@@ -10,6 +10,20 @@ Primero, instala las dependencias:
 pip install -r requirements.txt
 ```
 
+## Uso del backend
+
+### Crear la base de datos PostgreSQL en un contenedor:
+
+Docker compose up -d
+
+### Arrancar el backend:
+
+uvicorn backend.main:app --reload
+
+### Consultar docs:
+
+http://127.0.0.1:8000/docs
+
 ## Uso Básico
 
 ### Importar el servicio

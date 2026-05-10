@@ -6,7 +6,7 @@ import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
-from services import AniListService, TriviaGenerator, TriviaQuestion
+from services import AniListService, TriviaGenerator, TriviaQuestion, BackendClient
 from utils.embeds import (
     base_embed, error_embed, Colors,
     trivia_question_embed, trivia_answered_embed,
@@ -16,20 +16,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-QUESTION_TIMEOUT = 20   # seconds to answer each question
-NEXT_DELAY = 3          # seconds before advancing to the next question
-
-# In-memory leaderboard: guild_id -> {user_id -> {"name": str, "points": int}}
-_leaderboard: dict[int, dict[int, dict]] = {}
-
-
-def _add_score(guild_id: int, user_id: int, display_name: str, points: int):
-    """Add points to the global leaderboard."""
-    guild_scores = _leaderboard.setdefault(guild_id, {})
-    if user_id not in guild_scores:
-        guild_scores[user_id] = {"name": display_name, "points": 0}
-    guild_scores[user_id]["points"] += points
-    guild_scores[user_id]["name"] = display_name
+QUESTION_TIMEOUT = 20
+NEXT_DELAY = 3
 
 
 # --- Trivia session state ---
@@ -37,17 +25,12 @@ def _add_score(guild_id: int, user_id: int, display_name: str, points: int):
 class TriviaSession:
     """Holds the state of a running trivia session for one message."""
 
-    def __init__(
-        self,
-        guild_id: int,
-        questions: list[TriviaQuestion],
-        generator: TriviaGenerator,
-    ):
+    def __init__(self, guild_id: int, questions: list[TriviaQuestion], backend: BackendClient):
         self.guild_id = guild_id
         self.questions = questions
-        self.generator = generator
+        self.backend = backend
         self.current = 0
-        self.scores: dict[int, dict] = {}
+        self.scores: dict[int, dict] = {}  # local copy for the results embed
         self.message: discord.Message | None = None
 
     @property
@@ -58,16 +41,22 @@ class TriviaSession:
     def total(self) -> int:
         return len(self.questions)
 
-    def record_answer(self, user_id: int, display_name: str, points: int):
+    async def record_answer(self, user_id: int, display_name: str, points: int, correct: bool):
+        """Persist score to backend and update local session copy."""
         if user_id not in self.scores:
             self.scores[user_id] = {"name": display_name, "points": 0}
         self.scores[user_id]["points"] += points
         self.scores[user_id]["name"] = display_name
-        if points > 0:
-            _add_score(self.guild_id, user_id, display_name, points)
+
+        await self.backend.add_score(
+            user_discord_id=user_id,
+            guild_id=self.guild_id,
+            username=display_name,
+            points=points,
+            correct=correct,
+        )
 
     async def show_current(self):
-        """Render the current question into the session message."""
         q = self.current_question
         embed = trivia_question_embed(q, self.current + 1, self.total)
         view = TriviaQuestionView(self)
@@ -75,11 +64,11 @@ class TriviaSession:
         view.message = self.message
 
     async def advance(self):
-        """Move to the next question or show results."""
         self.current += 1
         if self.current >= self.total:
             embed = trivia_results_embed(self.scores, self.total)
             await self.message.edit(embed=embed, view=None)
+            await self.backend.increment_trivia(self.guild_id)
         else:
             await self.show_current()
 
@@ -98,9 +87,8 @@ class TriviaQuestionView(discord.ui.View):
         self.message: discord.Message | None = None
 
         for idx, option in enumerate(session.current_question.options):
-            label = f"{self.LABELS[idx]}. {option}"
             button = discord.ui.Button(
-                label=label[:80],
+                label=f"{self.LABELS[idx]}. {option}"[:80],
                 style=discord.ButtonStyle.primary,
                 custom_id=f"trivia_opt_{idx}",
                 row=idx // 2,
@@ -124,8 +112,8 @@ class TriviaQuestionView(discord.ui.View):
             is_correct = chosen_index == q.correct_index
             points = q.points if is_correct else 0
 
-            self.session.record_answer(
-                interaction.user.id, interaction.user.display_name, points
+            await self.session.record_answer(
+                interaction.user.id, interaction.user.display_name, points, is_correct
             )
 
             self._apply_button_styles(chosen_index)
@@ -142,7 +130,6 @@ class TriviaQuestionView(discord.ui.View):
         return callback
 
     def _apply_button_styles(self, chosen_index: int):
-        """Color buttons: green = correct, red = wrong choice, grey = rest."""
         q = self.session.current_question
         for item in self.children:
             if not isinstance(item, discord.ui.Button):
@@ -190,6 +177,10 @@ class Games(commands.Cog):
         self.anilist = AniListService()
         self.generator = TriviaGenerator(self.anilist)
 
+    @property
+    def backend(self) -> BackendClient:
+        return self.bot.backend
+
     @commands.hybrid_command(name="trivia", description="Start an anime trivia session")
     @app_commands.describe(rounds="Number of questions (1-10, default 5)")
     async def trivia(self, ctx: commands.Context, rounds: int = 5):
@@ -197,56 +188,56 @@ class Games(commands.Cog):
         rounds = max(1, min(rounds, 10))
         await ctx.defer()
 
-        loading_embed = base_embed(
+        await self.backend.register_user(ctx.author.id, ctx.author.name)
+
+        msg = await ctx.send(embed=base_embed(
             title="Preparing Trivia...",
             description=f"Fetching {rounds} questions from AniList. Please wait!",
             color=Colors.GAMES,
-        )
-        msg = await ctx.send(embed=loading_embed)
+        ))
 
         questions = await self.generator.generate(count=rounds)
 
         if not questions:
-            await msg.edit(
-                embed=error_embed("Could not generate questions. AniList may be unavailable.")
-            )
+            await msg.edit(embed=error_embed("Could not generate questions. AniList may be unavailable."))
             return
 
         session = TriviaSession(
             guild_id=ctx.guild.id,
             questions=questions,
-            generator=self.generator,
+            backend=self.backend,
         )
         session.message = msg
-
         await session.show_current()
 
-    @commands.hybrid_command(name="ranking", description="Show the anime trivia leaderboard for this server")
+    @commands.hybrid_command(name="ranking", description="Show the trivia leaderboard for this server")
     async def ranking(self, ctx: commands.Context):
         """Display the all-time trivia leaderboard for this server."""
         await ctx.defer()
 
-        guild_scores = _leaderboard.get(ctx.guild.id, {})
-
         embed = base_embed(title=f"Trivia Leaderboard — {ctx.guild.name}", color=Colors.GAMES)
 
-        if not guild_scores:
+        entries = await self.backend.get_ranking(ctx.guild.id, limit=10)
+
+        if not entries:
             embed.description = "No scores yet! Use `/trivia` to start playing."
             await ctx.send(embed=embed)
             return
 
-        sorted_scores = sorted(guild_scores.values(), key=lambda s: s["points"], reverse=True)
         medals = ["🥇", "🥈", "🥉"]
         ranking_text = ""
-        for idx, entry in enumerate(sorted_scores[:10]):
-            prefix = medals[idx] if idx < 3 else f"**#{idx + 1}**"
-            ranking_text += f"{prefix} **{entry['name']}** — {entry['points']} pts\n"
+        for entry in entries:
+            pos = entry["position"] - 1
+            prefix = medals[pos] if pos < 3 else f"**#{entry['position']}**"
+            ranking_text += (
+                f"{prefix} **{entry['username']}** — {entry['total_points']} pts "
+                f"({entry['correct_answers']}/{entry['games_played']} correct)\n"
+            )
 
         embed.description = ranking_text
-        embed.set_footer(text="Top 10 all-time scores in this server")
+        embed.set_footer(text="All-time scores in this server")
         await ctx.send(embed=embed)
 
 
 async def setup(bot: commands.Bot):
-    """Load the Games cog."""
     await bot.add_cog(Games(bot))
