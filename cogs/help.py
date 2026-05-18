@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from utils.embeds import base_embed, error_embed, Colors
+from utils.i18n import t
 
 
 class Help(commands.Cog, name="❓ Help"):
@@ -17,11 +18,12 @@ class Help(commands.Cog, name="❓ Help"):
         Displays the available commands, optionally filtered by category.
         Usage: !help | !help info | !help games | !help community | !help admin
         """
+        lang = await self.bot.get_lang(ctx.guild.id)
+
         if category is None:
-            # Main menu
             embed = base_embed(
-                title="🎌 AnimeHub Bot — Commands",
-                description="Use `!help <category>` to view commands for each section.",
+                title=t("help.title", lang),
+                description=t("help.description", lang),
                 color=Colors.PRIMARY
             )
             for cog_name, cog in self.bot.cogs.items():
@@ -32,11 +34,10 @@ class Help(commands.Cog, name="❓ Help"):
                         value=", ".join(f"`!{c.name}`" for c in cmds),
                         inline=False
                     )
-            embed.set_footer(text="AnimeHub Bot 🎌 | !help <category> for more details")
+            embed.set_footer(text=t("help.footer", lang))
             await ctx.send(embed=embed)
             return
 
-        # Search for the specified category
         specified_cog = None
         for cog_name, cog in self.bot.cogs.items():
             if category.lower() in cog_name.lower():
@@ -46,21 +47,21 @@ class Help(commands.Cog, name="❓ Help"):
 
         if not specified_cog:
             await ctx.send(embed=error_embed(
-                f"Category `{category}` not found.\n"
-                "Available categories: `info`, `games`, `community`, `admin`"
+                t("help.category_not_found", lang, category=category),
+                lang
             ))
             return
 
         embed = base_embed(
-            title=f"Commands — {cog_title}",
-            description=specified_cog.__doc__ or "No description available.",
+            title=t("help.cog_title", lang, cog_title=cog_title),
+            description=specified_cog.__doc__ or t("help.no_description", lang),
             color=Colors.INFO
         )
         for cmd in specified_cog.get_commands():
             if not cmd.hidden:
                 embed.add_field(
                     name=f"`!{cmd.name}`",
-                    value=cmd.help or "No description available.",
+                    value=cmd.help or t("help.no_description", lang),
                     inline=False
                 )
         await ctx.send(embed=embed)

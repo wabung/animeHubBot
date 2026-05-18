@@ -8,6 +8,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 from .anilist_service import AniListService
+from utils.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class TriviaGenerator:
             f"characters: {len(self._char_pool)}"
         )
 
-    async def generate(self, count: int = 5) -> list[TriviaQuestion]:
+    async def generate(self, count: int = 5, lang: str = "en") -> list[TriviaQuestion]:
         """
         Generate a list of unique trivia questions.
         Refreshes pools when they are too small to cover the requested count.
@@ -97,7 +98,7 @@ class TriviaGenerator:
                 if not candidates:
                     continue
                 char = random.choice(candidates)
-                question = self._character_question(char)
+                question = self._character_question(char, lang)
                 if question:
                     questions.append(question)
                     used_char_ids.add(char["id"])
@@ -106,7 +107,7 @@ class TriviaGenerator:
                 if not candidates:
                     continue
                 anime = random.choice(candidates)
-                question = builder(anime)
+                question = builder(anime, lang)
                 if question:
                     questions.append(question)
                     used_anime_ids.add(anime["id"])
@@ -115,7 +116,7 @@ class TriviaGenerator:
 
     # --- Question builders ---
 
-    def _episodes_question(self, anime: dict) -> Optional[TriviaQuestion]:
+    def _episodes_question(self, anime: dict, lang: str = "en") -> Optional[TriviaQuestion]:
         episodes = anime.get("episodes")
         if not episodes or episodes < 1:
             return None
@@ -137,14 +138,14 @@ class TriviaGenerator:
         random.shuffle(options)
 
         return TriviaQuestion(
-            question=f"How many episodes does **{anime['title']['romaji']}** have?",
+            question=t("trivia.q_episodes", lang, title=anime["title"]["romaji"]),
             options=options,
             correct_index=options.index(str(episodes)),
             points=DIFFICULTY_POINTS["easy"],
             image=anime.get("coverImage", {}).get("large"),
         )
 
-    def _studio_question(self, anime: dict) -> Optional[TriviaQuestion]:
+    def _studio_question(self, anime: dict, lang: str = "en") -> Optional[TriviaQuestion]:
         studios = (anime.get("studios") or {}).get("nodes", [])
         if not studios:
             return None
@@ -168,14 +169,14 @@ class TriviaGenerator:
         random.shuffle(options)
 
         return TriviaQuestion(
-            question=f"Which studio produced **{anime['title']['romaji']}**?",
+            question=t("trivia.q_studio", lang, title=anime["title"]["romaji"]),
             options=options,
             correct_index=options.index(correct_studio),
             points=DIFFICULTY_POINTS["hard"],
             image=anime.get("coverImage", {}).get("large"),
         )
 
-    def _genre_question(self, anime: dict) -> Optional[TriviaQuestion]:
+    def _genre_question(self, anime: dict, lang: str = "en") -> Optional[TriviaQuestion]:
         genres = anime.get("genres", [])
         if not genres:
             return None
@@ -189,14 +190,14 @@ class TriviaGenerator:
         random.shuffle(options)
 
         return TriviaQuestion(
-            question=f"What is the main genre of **{anime['title']['romaji']}**?",
+            question=t("trivia.q_genre", lang, title=anime["title"]["romaji"]),
             options=options,
             correct_index=options.index(correct_genre),
             points=DIFFICULTY_POINTS["easy"],
             image=anime.get("coverImage", {}).get("large"),
         )
 
-    def _character_question(self, char: dict) -> Optional[TriviaQuestion]:
+    def _character_question(self, char: dict, lang: str = "en") -> Optional[TriviaQuestion]:
         anime_nodes = (char.get("media") or {}).get("nodes", [])
         if not anime_nodes:
             return None
@@ -222,7 +223,7 @@ class TriviaGenerator:
         random.shuffle(options)
 
         return TriviaQuestion(
-            question="Which anime does this character belong to?",
+            question=t("trivia.q_character", lang),
             options=options,
             correct_index=options.index(correct_anime),
             points=DIFFICULTY_POINTS["medium"],

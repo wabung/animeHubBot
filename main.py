@@ -27,6 +27,18 @@ class Bot(commands.Bot):
         super().__init__(command_prefix='!', intents=intents, activity=activity)
         self.remove_command('help')
         self.backend = BackendClient()
+        self._lang_cache: dict[int, str] = {}
+
+    async def get_lang(self, guild_id: int) -> str:
+        """Return the configured language for a guild, defaulting to 'en'."""
+        if guild_id not in self._lang_cache:
+            config = await self.backend.get_guild_config(guild_id)
+            self._lang_cache[guild_id] = (config or {}).get("language", "en")
+        return self._lang_cache[guild_id]
+
+    def set_lang(self, guild_id: int, lang: str):
+        """Update the in-memory language cache after a setlang command."""
+        self._lang_cache[guild_id] = lang
 
     async def setup_hook(self):
         for cog in COGS:

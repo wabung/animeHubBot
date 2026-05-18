@@ -12,6 +12,7 @@ from utils.embeds import (
     trivia_question_embed, trivia_answered_embed,
     trivia_timeout_embed, trivia_results_embed,
 )
+from utils.i18n import t
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,10 +26,11 @@ NEXT_DELAY = 3
 class TriviaSession:
     """Holds the state of a running trivia session for one message."""
 
-    def __init__(self, guild_id: int, questions: list[TriviaQuestion], backend: BackendClient):
+    def __init__(self, guild_id: int, questions: list[TriviaQuestion], backend: BackendClient, lang: str = "en"):
         self.guild_id = guild_id
         self.questions = questions
         self.backend = backend
+        self.lang = lang
         self.current = 0
         self.scores: dict[int, dict] = {}  # local copy for the results embed
         self.message: discord.Message | None = None
@@ -58,7 +60,7 @@ class TriviaSession:
 
     async def show_current(self):
         q = self.current_question
-        embed = trivia_question_embed(q, self.current + 1, self.total)
+        embed = trivia_question_embed(q, self.current + 1, self.total, self.lang)
         view = TriviaQuestionView(self)
         await self.message.edit(embed=embed, view=view)
         view.message = self.message
@@ -66,7 +68,7 @@ class TriviaSession:
     async def advance(self):
         self.current += 1
         if self.current >= self.total:
-            embed = trivia_results_embed(self.scores, self.total)
+            embed = trivia_results_embed(self.scores, self.total, self.lang)
             await self.message.edit(embed=embed, view=None)
             await self.backend.increment_trivia(self.guild_id)
         else:
@@ -100,7 +102,10 @@ class TriviaQuestionView(discord.ui.View):
         async def callback(interaction: discord.Interaction):
             if self.answered:
                 await interaction.response.send_message(
-                    embed=error_embed("This question has already been answered."),
+                    embed=error_embed(
+                        t("trivia.already_answered", self.session.lang),
+                        self.session.lang,
+                    ),
                     ephemeral=True,
                 )
                 return
@@ -121,6 +126,7 @@ class TriviaQuestionView(discord.ui.View):
             embed = trivia_answered_embed(
                 q, self.session.current + 1, self.session.total,
                 is_correct, interaction.user.display_name,
+                self.session.lang,
             )
             await interaction.response.edit_message(embed=embed, view=self)
 
@@ -160,7 +166,7 @@ class TriviaQuestionView(discord.ui.View):
                 else discord.ButtonStyle.secondary
             )
 
-        embed = trivia_timeout_embed(q, self.session.current + 1, self.session.total)
+        embed = trivia_timeout_embed(q, self.session.current + 1, self.session.total, self.session.lang)
         if self.message:
             await self.message.edit(embed=embed, view=self)
             await asyncio.sleep(NEXT_DELAY)
@@ -187,25 +193,27 @@ class Games(commands.Cog):
         """Start a multi-round anime trivia session for the whole server."""
         rounds = max(1, min(rounds, 10))
         await ctx.defer()
+        lang = await self.bot.get_lang(ctx.guild.id)
 
         await self.backend.register_user(ctx.author.id, ctx.author.name)
 
         msg = await ctx.send(embed=base_embed(
-            title="Preparing Trivia...",
-            description=f"Fetching {rounds} questions from AniList. Please wait!",
+            title=t("trivia.preparing_title", lang),
+            description=t("trivia.preparing_desc", lang, rounds=rounds),
             color=Colors.GAMES,
         ))
 
-        questions = await self.generator.generate(count=rounds)
+        questions = await self.generator.generate(count=rounds, lang=lang)
 
         if not questions:
-            await msg.edit(embed=error_embed("Could not generate questions. AniList may be unavailable."))
+            await msg.edit(embed=error_embed(t("trivia.error_no_questions", lang), lang))
             return
 
         session = TriviaSession(
             guild_id=ctx.guild.id,
             questions=questions,
             backend=self.backend,
+            lang=lang,
         )
         session.message = msg
         await session.show_current()
@@ -214,13 +222,14 @@ class Games(commands.Cog):
     async def ranking(self, ctx: commands.Context):
         """Display the all-time trivia leaderboard for this server."""
         await ctx.defer()
+        lang = await self.bot.get_lang(ctx.guild.id)
 
-        embed = base_embed(title=f"Trivia Leaderboard — {ctx.guild.name}", color=Colors.GAMES)
+        embed = base_embed(title=t("ranking.title", lang, guild=ctx.guild.name), color=Colors.GAMES)
 
         entries = await self.backend.get_ranking(ctx.guild.id, limit=10)
 
         if not entries:
-            embed.description = "No scores yet! Use `/trivia` to start playing."
+            embed.description = t("ranking.no_scores", lang)
             await ctx.send(embed=embed)
             return
 
@@ -231,11 +240,11 @@ class Games(commands.Cog):
             prefix = medals[pos] if pos < 3 else f"**#{entry['position']}**"
             ranking_text += (
                 f"{prefix} **{entry['username']}** — {entry['total_points']} pts "
-                f"({entry['correct_answers']}/{entry['games_played']} correct)\n"
+                f"({entry['correct_answers']}/{entry['games_played']} {t('ranking.correct_label', lang)})\n"
             )
 
         embed.description = ranking_text
-        embed.set_footer(text="All-time scores in this server")
+        embed.set_footer(text=t("ranking.footer", lang))
         await ctx.send(embed=embed)
 
 
