@@ -135,7 +135,7 @@ class GenreSelectView(discord.ui.View):
 
 # --- Cog ---
 
-class Info(commands.Cog):
+class Info(commands.Cog, name="ℹ️ Info"):
     """Anime information commands."""
 
     def __init__(self, bot: commands.Bot):

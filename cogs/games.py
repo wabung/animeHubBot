@@ -175,7 +175,7 @@ class TriviaQuestionView(discord.ui.View):
 
 # --- Cog ---
 
-class Games(commands.Cog):
+class Games(commands.Cog, name="🎮 Games"):
     """Anime trivia and games."""
 
     def __init__(self, bot: commands.Bot):
@@ -187,13 +187,29 @@ class Games(commands.Cog):
     def backend(self) -> BackendClient:
         return self.bot.backend
 
+    async def _check_games_channel(self, ctx: commands.Context, lang: str) -> bool:
+        """Return True if the command can proceed; False (+ send error) if wrong channel."""
+        guild_config = await self.backend.get_guild_config(ctx.guild.id)
+        games_channel_id = (guild_config or {}).get("games_channel_id")
+        if games_channel_id and ctx.channel.id != games_channel_id:
+            channel = ctx.guild.get_channel(games_channel_id)
+            mention = channel.mention if channel else f"<#{games_channel_id}>"
+            await ctx.send(
+                embed=error_embed(t("games.wrong_channel", lang, channel=mention), lang),
+                ephemeral=True,
+            )
+            return False
+        return True
+
     @commands.hybrid_command(name="trivia", description="Start an anime trivia session")
     @app_commands.describe(rounds="Number of questions (1-10, default 5)")
     async def trivia(self, ctx: commands.Context, rounds: int = 5):
         """Start a multi-round anime trivia session for the whole server."""
         rounds = max(1, min(rounds, 10))
-        await ctx.defer()
         lang = await self.bot.get_lang(ctx.guild.id)
+        if not await self._check_games_channel(ctx, lang):
+            return
+        await ctx.defer()
 
         await self.backend.register_user(ctx.author.id, ctx.author.name)
 
@@ -221,8 +237,10 @@ class Games(commands.Cog):
     @commands.hybrid_command(name="ranking", description="Show the trivia leaderboard for this server")
     async def ranking(self, ctx: commands.Context):
         """Display the all-time trivia leaderboard for this server."""
-        await ctx.defer()
         lang = await self.bot.get_lang(ctx.guild.id)
+        if not await self._check_games_channel(ctx, lang):
+            return
+        await ctx.defer()
 
         embed = base_embed(title=t("ranking.title", lang, guild=ctx.guild.name), color=Colors.GAMES)
 

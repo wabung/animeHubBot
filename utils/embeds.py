@@ -224,6 +224,37 @@ def trivia_results_embed(scores: dict, total_questions: int, lang: str = "en") -
     return embed
 
 
+_POLL_LABELS = ["🇦", "🇧", "🇨", "🇩"]
+
+
+def poll_embed(
+    question: str,
+    options: list[str],
+    votes: dict,
+    lang: str = "en",
+    author: discord.Member = None,
+    closed: bool = False,
+) -> discord.Embed:
+    """Build the poll embed showing vote bars for each option."""
+    total = len(votes)
+    title = t("poll.results_title", lang) if closed else t("poll.title", lang)
+    color = Colors.COMMUNITY if not closed else Colors.PRIMARY
+
+    description = f"**{question}**\n\n"
+    for idx, option in enumerate(options):
+        count = sum(1 for v in votes.values() if v == idx)
+        pct = round(count / total * 100) if total > 0 else 0
+        filled = pct // 10
+        bar = "█" * filled + "░" * (10 - filled)
+        description += f"{_POLL_LABELS[idx]} **{option}**\n`{bar}` {count} {t('poll.votes_label', lang)} ({pct}%)\n\n"
+
+    embed = base_embed(title=title, description=description, color=color)
+    if author:
+        embed.set_author(name=author.display_name, icon_url=author.display_avatar.url)
+    embed.set_footer(text=t("poll.total_votes", lang, total=total))
+    return embed
+
+
 def trending_embed(result: dict, lang: str = "en") -> tuple[discord.Embed, dict]:
     """Build embed for trending anime results."""
     media_list = result["Page"]["media"]

@@ -108,6 +108,20 @@
 
   "setchannel.success": "Canal para **{tipo}** establecido en {channel}.",
 
+  "poll.title": "📊 Encuesta",
+  "poll.results_title": "📊 Resultados de la Encuesta",
+  "poll.close_btn": "Cerrar Encuesta",
+  "poll.closed": "Esta encuesta ya está cerrada.",
+  "poll.already_voted": "Ya votaste por **{option}**.",
+  "poll.vote_registered": "¡Voto registrado por **{option}**!",
+  "poll.vote_changed": "¡Voto cambiado a **{option}**!",
+  "poll.close_no_permission": "Solo el creador de la encuesta o un moderador puede cerrarla.",
+  "poll.votes_label": "voto(s)",
+  "poll.total_votes": "Total: {total} voto(s)",
+  "poll.sent_to": "¡Encuesta enviada a {channel}!",
+
+  "games.wrong_channel": "Los comandos de juegos solo se pueden usar en {channel}.",
+
   "error.admin_only": "Necesitas permisos de **administrador** para usar este comando.",
   "error.invalid_channel_type": "Tipo inválido. Usa: `polls` o `games`",
   "error.config_save_failed": "No se pudo guardar la configuración. ¿Está el backend activo?",

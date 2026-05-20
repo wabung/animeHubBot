@@ -12,7 +12,7 @@ dev_guild_id = os.getenv('DEV_GUILD_ID')
 COGS = [
     'cogs.help',
     'cogs.info',
-    # 'cogs.community',
+    'cogs.community',
     'cogs.games',
     'cogs.admin',
 ]
