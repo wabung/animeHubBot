@@ -55,6 +55,11 @@
   "characters.field_role": "Rol",
   "characters.field_va": "Actor de Voz (JP)",
 
+  "trivia.q_opening": "¿A qué anime pertenece el opening **'{title}'** de {artist}?",
+  "trivia.q_opening_notitle": "¿A qué anime pertenece este opening?",
+  "trivia.opening_hint": "Escucha el opening de abajo y elige el anime correcto.",
+  "trivia.opening_unavailable_title": "Opening no disponible",
+  "trivia.opening_unavailable_desc": "No se pudo obtener ningún clip de opening de la API para esta ronda. Pasando a la siguiente pregunta...",
   "trivia.q_episodes": "¿Cuántos episodios tiene **{title}**?",
   "trivia.q_studio": "¿Qué estudio produjo **{title}**?",
   "trivia.q_genre": "¿Cuál es el género principal de **{title}**?",

@@ -3,10 +3,12 @@ Games cog — anime trivia with dynamic questions from AniList.
 """
 
 import asyncio
+import io
+import random
 import discord
 from discord import app_commands
 from discord.ext import commands
-from services import AniListService, TriviaGenerator, TriviaQuestion, BackendClient
+from services import AniListService, AnimeThemesService, TriviaGenerator, TriviaQuestion, BackendClient
 from utils.embeds import (
     base_embed, error_embed, Colors,
     trivia_question_embed, trivia_answered_embed,
@@ -18,6 +20,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 QUESTION_TIMEOUT = 20
+OPENING_QUESTION_TIMEOUT = 35
 NEXT_DELAY = 3
 
 
@@ -26,14 +29,25 @@ NEXT_DELAY = 3
 class TriviaSession:
     """Holds the state of a running trivia session for one message."""
 
-    def __init__(self, guild_id: int, questions: list[TriviaQuestion], backend: BackendClient, lang: str = "en"):
+    def __init__(
+        self,
+        guild_id: int,
+        questions: list[TriviaQuestion],
+        backend: BackendClient,
+        lang: str = "en",
+        animethemes: AnimeThemesService | None = None,
+        generator: TriviaGenerator | None = None,
+    ):
         self.guild_id = guild_id
         self.questions = questions
         self.backend = backend
         self.lang = lang
+        self.animethemes = animethemes
+        self.generator = generator
         self.current = 0
-        self.scores: dict[int, dict] = {}  # local copy for the results embed
+        self.scores: dict[int, dict] = {}
         self.message: discord.Message | None = None
+        self._video_message: discord.Message | None = None
 
     @property
     def current_question(self) -> TriviaQuestion:
@@ -60,6 +74,55 @@ class TriviaSession:
 
     async def show_current(self):
         q = self.current_question
+
+        if self._video_message:
+            try:
+                await self._video_message.delete()
+            except Exception:
+                pass
+            self._video_message = None
+
+        if q.video_url:
+            result = None
+            if self.animethemes:
+                result = await self.animethemes.get_clip_bytes(q.video_url)
+
+            # If the URL 404d or clip failed, try fallback openings from the pool
+            if result is None and self.animethemes and self.generator:
+                already_used = {oq.video_url for oq in self.questions if oq.video_url}
+                pool = [
+                    th for th in self.generator._opening_pool
+                    if th["video_url"] not in already_used
+                ]
+                random.shuffle(pool)
+                for candidate in pool[:3]:
+                    await asyncio.sleep(1)
+                    result = await self.animethemes.get_clip_bytes(candidate["video_url"])
+                    if result:
+                        new_q = self.generator._opening_question(candidate, self.lang)
+                        if new_q:
+                            self.questions[self.current] = new_q
+                            q = new_q
+                        break
+
+            if result is None:
+                embed = error_embed(
+                    t("trivia.opening_unavailable_desc", self.lang),
+                    self.lang,
+                    title=t("trivia.opening_unavailable_title", self.lang),
+                )
+                await self.message.edit(embed=embed, view=None)
+                await asyncio.sleep(NEXT_DELAY)
+                await self.advance()
+                return
+
+            if result:
+                clip, ext = result
+                hint = t("trivia.opening_hint", self.lang)
+                self._video_message = await self.message.channel.send(
+                    hint, file=discord.File(io.BytesIO(clip), f"opening.{ext}")
+                )
+
         embed = trivia_question_embed(q, self.current + 1, self.total, self.lang)
         view = TriviaQuestionView(self)
         await self.message.edit(embed=embed, view=view)
@@ -68,6 +131,12 @@ class TriviaSession:
     async def advance(self):
         self.current += 1
         if self.current >= self.total:
+            # Clean up the last video message when the session ends
+            if self._video_message:
+                try:
+                    await self._video_message.delete()
+                except Exception:
+                    pass
             embed = trivia_results_embed(self.scores, self.total, self.lang)
             await self.message.edit(embed=embed, view=None)
             await self.backend.increment_trivia(self.guild_id)
@@ -83,7 +152,8 @@ class TriviaQuestionView(discord.ui.View):
     LABELS = ["A", "B", "C", "D"]
 
     def __init__(self, session: TriviaSession):
-        super().__init__(timeout=QUESTION_TIMEOUT)
+        timeout = OPENING_QUESTION_TIMEOUT if session.current_question.video_url else QUESTION_TIMEOUT
+        super().__init__(timeout=timeout)
         self.session = session
         self.answered = False
         self.message: discord.Message | None = None
@@ -181,7 +251,8 @@ class Games(commands.Cog, name="🎮 Games"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.anilist = AniListService()
-        self.generator = TriviaGenerator(self.anilist)
+        self.animethemes = AnimeThemesService()
+        self.generator = TriviaGenerator(self.anilist, self.animethemes)
 
     @property
     def backend(self) -> BackendClient:
@@ -202,8 +273,16 @@ class Games(commands.Cog, name="🎮 Games"):
         return True
 
     @commands.hybrid_command(name="trivia", description="Start an anime trivia session")
-    @app_commands.describe(rounds="Number of questions (1-10, default 5)")
-    async def trivia(self, ctx: commands.Context, rounds: int = 5):
+    @app_commands.describe(
+        rounds="Number of questions (1-10, default 5)",
+        mode="Question type: basic, openings, or both (default: both)",
+    )
+    @app_commands.choices(mode=[
+        app_commands.Choice(name="Both (basic + openings)", value="both"),
+        app_commands.Choice(name="Basic (episodes, studio, genre, characters)", value="basic"),
+        app_commands.Choice(name="Openings only", value="openings"),
+    ])
+    async def trivia(self, ctx: commands.Context, rounds: int = 5, mode: str = "both"):
         """Start a multi-round anime trivia session for the whole server."""
         rounds = max(1, min(rounds, 10))
         lang = await self.bot.get_lang(ctx.guild.id)
@@ -219,7 +298,7 @@ class Games(commands.Cog, name="🎮 Games"):
             color=Colors.GAMES,
         ))
 
-        questions = await self.generator.generate(count=rounds, lang=lang)
+        questions = await self.generator.generate(count=rounds, lang=lang, mode=mode)
 
         if not questions:
             await msg.edit(embed=error_embed(t("trivia.error_no_questions", lang), lang))
@@ -230,6 +309,8 @@ class Games(commands.Cog, name="🎮 Games"):
             questions=questions,
             backend=self.backend,
             lang=lang,
+            animethemes=self.animethemes,
+            generator=self.generator,
         )
         session.message = msg
         await session.show_current()
