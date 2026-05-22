@@ -30,7 +30,7 @@ class AnimeThemesService:
 
     # --- Pool fetching ---
 
-    async def fetch_opening_pool(self, limit: int = 50) -> list[dict]:
+    async def fetch_opening_pool(self, limit: int = 100) -> list[dict]:
         """
         Return up to `limit` OP1 entries from the AnimeThemes REST API.
         Each entry: {"anime_name": str, "video_url": str}

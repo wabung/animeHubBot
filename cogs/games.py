@@ -111,7 +111,7 @@ class TriviaSession:
                     self.lang,
                     title=t("trivia.opening_unavailable_title", self.lang),
                 )
-                await self.message.edit(embed=embed, view=None)
+                await self.message.channel.send(embed=embed)
                 await asyncio.sleep(NEXT_DELAY)
                 await self.advance()
                 return
@@ -125,7 +125,7 @@ class TriviaSession:
 
         embed = trivia_question_embed(q, self.current + 1, self.total, self.lang)
         view = TriviaQuestionView(self)
-        await self.message.edit(embed=embed, view=view)
+        self.message = await self.message.channel.send(embed=embed, view=view)
         view.message = self.message
 
     async def advance(self):
@@ -138,7 +138,7 @@ class TriviaSession:
                 except Exception:
                     pass
             embed = trivia_results_embed(self.scores, self.total, self.lang)
-            await self.message.edit(embed=embed, view=None)
+            await self.message.channel.send(embed=embed)
             await self.backend.increment_trivia(self.guild_id)
         else:
             await self.show_current()
